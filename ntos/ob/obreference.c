@@ -220,11 +220,12 @@ FASTCALL
 ObFastReferenceObjectLocked(
     _In_ PEX_FAST_REF FastRef)
 {
-    PVOID Object = ExGetObjectFastReference(*FastRef);
-
-    /* The caller serialises against replacement, so one plain reference does */
+    PVOID Object;
 
     ASSERT(FastRef != NULL);
+
+    /* The caller serialises against replacement, so one plain reference does */
+    Object = ExGetObjectFastReference(*FastRef);
 
     if (Object != NULL) ObpAdjustPointerCount(Object, 1);
 
@@ -351,6 +352,14 @@ ObReferenceObjectByName(
 
     /* The lookup hands its own reference to us, so the context can let go */
     ObpReleaseLookupContext(&LookupContext);
+
+    if (NT_SUCCESS(Status) &&
+        !ObpCheckObjectReference(Found, AccessState, FALSE, AccessMode, &Status))
+    {
+        ASSERT(!NT_SUCCESS(Status));
+        ObDereferenceObject(Found);
+        Found = NULL;
+    }
 
     if (AccessState == &LocalAccessState) SeDeleteAccessState(&LocalAccessState);
     ObpFreeObjectNameBuffer(&Captured);

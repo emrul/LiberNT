@@ -46,6 +46,7 @@ list(APPEND SOURCE
     RegNotifyThreadAgnostic.c
     RegNotifyThreadExit.c
     RegLoadAppKey.c
+    SmApiPortAccess.c
     RegLoadMUIString.c
     RegOpenKeyExW.c
     RegOpenKeyTransacted.c

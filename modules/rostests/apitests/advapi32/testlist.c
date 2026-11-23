@@ -47,6 +47,7 @@ extern void func_RegCreateKeyLink(void);
 extern void func_RegNotifyThreadAgnostic(void);
 extern void func_RegNotifyThreadExit(void);
 extern void func_RegLoadAppKey(void);
+extern void func_SmApiPortAccess(void);
 extern void func_RegLoadMUIString(void);
 extern void func_RegOpenKeyExW(void);
 extern void func_RegOpenKeyTransacted(void);
@@ -120,6 +121,7 @@ const struct test winetest_testlist[] =
     { "RegNotifyThreadAgnostic", func_RegNotifyThreadAgnostic },
     { "RegNotifyThreadExit", func_RegNotifyThreadExit },
     { "RegLoadAppKey", func_RegLoadAppKey },
+    { "SmApiPortAccess", func_SmApiPortAccess },
     { "RegLoadMUIString", func_RegLoadMUIString },
     { "RegQueryInfoKey", func_RegQueryInfoKey },
     { "RegOpenKeyExW", func_RegOpenKeyExW },
