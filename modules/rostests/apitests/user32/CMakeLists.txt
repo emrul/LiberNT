@@ -31,6 +31,7 @@ list(APPEND SOURCE
     DestroyWindow.c
     InvalidWindowReturn.c
     GetMenuStringErrors.c
+    WinStaGlobalAtoms.c
     DialogAccelerator.c
     DialogDpiChangeBehavior.c
     DisplayConfigTarget.c

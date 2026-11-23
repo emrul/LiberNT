@@ -28,6 +28,7 @@ extern void func_DestroyActiveWindow(void);
 extern void func_DestroyWindow(void);
 extern void func_InvalidWindowReturn(void);
 extern void func_GetMenuStringErrors(void);
+extern void func_WinStaGlobalAtoms(void);
 extern void func_DialogAccelerator(void);
 extern void func_DialogDpiChangeBehavior(void);
 extern void func_DpiHostingBehavior(void);
@@ -190,6 +191,7 @@ const struct test winetest_testlist[] =
     { "DestroyWindow", func_DestroyWindow },
     { "InvalidWindowReturn", func_InvalidWindowReturn },
     { "GetMenuStringErrors", func_GetMenuStringErrors },
+    { "WinStaGlobalAtoms", func_WinStaGlobalAtoms },
     { "DialogAccelerator", func_DialogAccelerator },
     { "DialogDpiChangeBehavior", func_DialogDpiChangeBehavior },
     { "DpiHostingBehavior", func_DpiHostingBehavior },

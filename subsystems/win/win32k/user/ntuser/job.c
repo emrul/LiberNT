@@ -520,14 +520,17 @@ Win32kGlobalAtomTableCallout(VOID)
     PJOBINFO pJobInfo;
     PRTL_ATOM_TABLE pAtomTable = NULL;
 
-    if (ppi == NULL || !(ppi->W32PF_flags & W32PF_JOBRESTRICTED))
-        return NULL;
+    if (ppi != NULL && (ppi->W32PF_flags & W32PF_JOBRESTRICTED))
+    {
+        UserEnterShared();
+        pJobInfo = ppi->pW32Job;
+        if (pJobInfo != NULL && (pJobInfo->UIRestrictions & JOB_OBJECT_UILIMIT_GLOBALATOMS))
+            pAtomTable = pJobInfo->pAtomTable;
+        UserLeave();
+    }
 
-    UserEnterShared();
-    pJobInfo = ppi->pW32Job;
-    if (pJobInfo != NULL && (pJobInfo->UIRestrictions & JOB_OBJECT_UILIMIT_GLOBALATOMS))
-        pAtomTable = pJobInfo->pAtomTable;
-    UserLeave();
+    if (pAtomTable == NULL)
+        pAtomTable = gGlobalAtomTable;
 
     return pAtomTable;
 }

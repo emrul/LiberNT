@@ -11,6 +11,7 @@
 /* GLOBALS *******************************************************************/
 
 PRTL_ATOM_TABLE gAtomTable = NULL;
+PRTL_ATOM_TABLE gGlobalAtomTable = NULL;
 static PUSER_SESSION gpUserSessions = NULL;
 PUSER_SESSION gpDisplaySession = NULL;
 
@@ -19,7 +20,17 @@ PUSER_SESSION gpDisplaySession = NULL;
 NTSTATUS FASTCALL
 InitSessionImpl(VOID)
 {
-   return RtlCreateAtomTable(37, &gAtomTable);
+   NTSTATUS Status = RtlCreateAtomTable(37, &gAtomTable);
+
+   if (!NT_SUCCESS(Status))
+      return Status;
+   Status = RtlCreateAtomTable(37, &gGlobalAtomTable);
+   if (!NT_SUCCESS(Status))
+   {
+      RtlDestroyAtomTable(gAtomTable);
+      gAtomTable = NULL;
+   }
+   return Status;
 }
 
 PUSER_SESSION FASTCALL
