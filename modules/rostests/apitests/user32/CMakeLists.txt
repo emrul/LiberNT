@@ -30,6 +30,7 @@ list(APPEND SOURCE
     DestroyActiveWindow.c
     DestroyWindow.c
     InvalidWindowReturn.c
+    GetMenuStringErrors.c
     DialogAccelerator.c
     DialogDpiChangeBehavior.c
     DisplayConfigTarget.c

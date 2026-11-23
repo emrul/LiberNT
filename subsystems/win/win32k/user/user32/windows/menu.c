@@ -1527,6 +1527,12 @@ GetMenuStringW(
 
   if (lpString && nMaxCount) lpString[0] = '\0';
 
+  if (!IsMenu(hMenu))
+  {
+      SetLastError(ERROR_INVALID_PARAMETER);
+      return 0;
+  }
+
   if (!MENU_FindItemInfo( &hMenu, &uIDItem, uFlag, &Item ))
   {
       SetLastError( ERROR_MENU_ITEM_NOT_FOUND);
@@ -1555,6 +1561,12 @@ GetMenuStringW(
   TRACE("menu=%p item=%04x ptr=%p len=%d flags=%04x\n", hMenu, uIDItem, lpString, nMaxCount, uFlag );
 
   if (lpString && nMaxCount) lpString[0] = '\0';
+
+  if (!MENU_GetMenu(hMenu))
+  {
+      SetLastError(ERROR_INVALID_PARAMETER);
+      return 0;
+  }
 
   if (!(item = MENU_FindItem( &hMenu, &uIDItem, uFlag )))
   {
