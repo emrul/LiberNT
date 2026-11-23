@@ -2701,6 +2701,108 @@ Cleanup:
 }
 
 static VOID
+ExpectSegments(
+    _In_ PCSTR Tag,
+    _In_ SOCKET Receiver,
+    _In_ SOCKET Sender,
+    _In_ const SOCKADDR_STORAGE *To,
+    _In_ BOOL SocketOption,
+    _In_ DWORD SegmentSize,
+    _In_ ULONG Total)
+{
+    static CHAR Sent[0x10000], Data[0x10000];
+    struct timeval Timeout = { 2, 0 };
+    CMSG_BUFFER Control;
+    WSAMSG Message;
+    WSABUF Buffer;
+    fd_set ReadSet;
+    DWORD Bytes = 0xdeadbeef, Zero = 0;
+    ULONG i, Offset = 0, Count = 0, Expected;
+    int Received;
+
+    for (i = 0; i < Total; i++)
+        Sent[i] = (CHAR)(i * 7 + i / 1200 + 3);
+    Control.Length = 0;
+    if (SocketOption)
+        ok(!setsockopt(Sender, IPPROTO_UDP, UDP_SEND_MSG_SIZE, (char *)&SegmentSize, sizeof(SegmentSize)),
+           "%s: UDP_SEND_MSG_SIZE failed, error %d\n", Tag, WSAGetLastError());
+    else
+        AddInt(&Control, IPPROTO_UDP, UDP_SEND_MSG_SIZE, SegmentSize);
+    Buffer.buf = Sent;
+    Buffer.len = Total;
+    ZeroMemory(&Message, sizeof(Message));
+    Message.name = (LPSOCKADDR)To;
+    Message.namelen = AddressLength(To);
+    Message.lpBuffers = &Buffer;
+    Message.dwBufferCount = 1;
+    Message.Control.buf = Control.Length ? Control.Buffer : NULL;
+    Message.Control.len = Control.Length;
+    ok(!ControlSendMsg(Sender, &Message, 0, &Bytes, NULL, NULL) && Bytes == Total,
+       "%s: WSASendMsg sent %lu bytes, error %d\n", Tag, Bytes, WSAGetLastError());
+    if (SocketOption)
+        ok(!setsockopt(Sender, IPPROTO_UDP, UDP_SEND_MSG_SIZE, (char *)&Zero, sizeof(Zero)),
+           "%s: UDP_SEND_MSG_SIZE reset failed, error %d\n", Tag, WSAGetLastError());
+    ok(sendto(Sender, "F", 1, 0, (const struct sockaddr *)To, AddressLength(To)) == 1,
+       "%s: fence send failed, error %d\n", Tag, WSAGetLastError());
+    for (;;)
+    {
+        FD_ZERO(&ReadSet);
+        FD_SET(Receiver, &ReadSet);
+        if (select(0, &ReadSet, NULL, NULL, &Timeout) != 1)
+        {
+            ok(0, "%s: the fence did not arrive\n", Tag);
+            break;
+        }
+        Received = recv(Receiver, Data, sizeof(Data), 0);
+        if (Received == 1 && Data[0] == 'F')
+            break;
+        Expected = SegmentSize ? min(SegmentSize, Total - min(Offset, Total)) : Total;
+        ok(Received == (int)Expected, "%s: datagram %lu has %d bytes, expected %lu\n", Tag, Count, Received, Expected);
+        if (Received > 0 && Offset + Received <= Total)
+            ok(!memcmp(Data, Sent + Offset, Received), "%s: datagram %lu differs from the sent data\n", Tag, Count);
+        Offset += Received > 0 ? Received : 0;
+        Count++;
+    }
+    Expected = SegmentSize ? (Total + SegmentSize - 1) / SegmentSize : 1;
+    ok(Count == Expected && Offset == Total, "%s: %lu datagrams with %lu bytes arrived, expected %lu with %lu\n",
+       Tag, Count, Offset, Expected, Total);
+}
+
+static VOID
+TestControlSendMsgSizeMtu(VOID)
+{
+    static const struct { BOOL SocketOption; DWORD SegmentSize; ULONG Total; } Cases[] =
+    {
+        { FALSE, 1200, 4100 }, { FALSE, 1452, 14520 }, { TRUE, 1200, 3000 },
+    };
+    SOCKADDR_STORAGE To, Mapped;
+    SOCKET Receiver, Sender4, Sender6;
+    CHAR Tag[64];
+    ULONG i;
+
+    Receiver = ReceiverAny("127.0.0.1", -1, &To);
+    Sender4 = SenderAny(AF_INET, NULL, -1);
+    Sender6 = SenderAny(AF_INET6, "::", 0);
+    if (Receiver != INVALID_SOCKET && Sender4 != INVALID_SOCKET && Sender6 != INVALID_SOCKET)
+    {
+        MakeAddress("::ffff:127.0.0.1", ((SOCKADDR_IN *)&To)->sin_port, &Mapped);
+        for (i = 0; i < ARRAYSIZE(Cases); i++)
+        {
+            sprintf(Tag, "IPv4 %s %lu over %lu", Cases[i].SocketOption ? "setsockopt" : "cmsg", Cases[i].SegmentSize, Cases[i].Total);
+            ExpectSegments(Tag, Receiver, Sender4, &To, Cases[i].SocketOption, Cases[i].SegmentSize, Cases[i].Total);
+            sprintf(Tag, "dual-stack %s %lu over %lu", Cases[i].SocketOption ? "setsockopt" : "cmsg", Cases[i].SegmentSize, Cases[i].Total);
+            ExpectSegments(Tag, Receiver, Sender6, &Mapped, Cases[i].SocketOption, Cases[i].SegmentSize, Cases[i].Total);
+        }
+    }
+    if (Sender6 != INVALID_SOCKET)
+        closesocket(Sender6);
+    if (Sender4 != INVALID_SOCKET)
+        closesocket(Sender4);
+    if (Receiver != INVALID_SOCKET)
+        closesocket(Receiver);
+}
+
+static VOID
 TestControl(VOID)
 {
     GUID SendGuid = WSAID_WSASENDMSG, RecvGuid = WSAID_WSARECVMSG;
@@ -2731,6 +2833,7 @@ TestControl(VOID)
         TestControlTwoAdapters();
         TestControl6();
         TestControlDual();
+        TestControlSendMsgSizeMtu();
     }
     closesocket(Sender);
     closesocket(Receiver);
