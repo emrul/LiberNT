@@ -1326,20 +1326,20 @@ DeleteProfileW(
         return FALSE;
     }
 
-    if (lpProfilePath != NULL)
+    dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                            L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList",
+                            0,
+                            KEY_QUERY_VALUE,
+                            &hProfilesKey);
+    if (dwError != ERROR_SUCCESS)
     {
-        dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
-                                L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList",
-                                0,
-                                KEY_QUERY_VALUE,
-                                &hProfilesKey);
-        if (dwError != ERROR_SUCCESS)
-        {
-            DPRINT1("Error: %lu\n", dwError);
-            goto done;
-        }
+        DPRINT1("Error: %lu\n", dwError);
+        goto done;
+    }
 
-        dwError = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+    if (lpProfilePath == NULL)
+    {
+        dwError = RegOpenKeyExW(hProfilesKey,
                                 lpSidString,
                                 0,
                                 KEY_QUERY_VALUE,
@@ -1387,6 +1387,20 @@ DeleteProfileW(
         goto done;
     }
 
+    if (hProfileKey != NULL)
+    {
+        RegCloseKey(hProfileKey);
+        hProfileKey = NULL;
+    }
+
+    dwError = RegDeleteKeyW(hProfilesKey, lpSidString);
+    if (dwError != ERROR_SUCCESS && dwError != ERROR_FILE_NOT_FOUND)
+    {
+        DPRINT1("Error: %lu\n", dwError);
+        goto done;
+    }
+    dwError = ERROR_SUCCESS;
+
     bRet = TRUE;
 
 done:
@@ -1395,6 +1409,9 @@ done:
 
     if (hProfilesKey != NULL)
         RegCloseKey(hProfilesKey);
+
+    if (!bRet && dwError != ERROR_SUCCESS)
+        SetLastError(dwError);
 
     return bRet;
 }
