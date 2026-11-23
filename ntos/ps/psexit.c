@@ -521,6 +521,7 @@ PspTerminateProcessThreads(
     ExReleasePushLockExclusive(&Process->ProcessLock);
     KeLeaveCriticalRegion();
 
+    KeEnterCriticalRegion();
     Thread = PsGetNextProcessThread(Process, NULL);
     while (Thread != NULL)
     {
@@ -536,6 +537,7 @@ PspTerminateProcessThreads(
         Status = STATUS_SUCCESS;
         Thread = PsGetNextProcessThread(Process, Thread);
     }
+    KeLeaveCriticalRegion();
 
     /* No last thread will tell the provider that a pico process with none has ended */
     if (Status == STATUS_NOTHING_TO_TERMINATE && !WasExiting && Process->PicoCreated)
