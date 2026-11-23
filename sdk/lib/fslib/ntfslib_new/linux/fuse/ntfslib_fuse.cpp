@@ -22,7 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef __linux__
 #include <sys/sysmacros.h>
+#endif
 #include <sys/statvfs.h>
 #include <sys/types.h>
 #include <sys/xattr.h>
