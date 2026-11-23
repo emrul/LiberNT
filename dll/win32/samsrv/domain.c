@@ -120,12 +120,11 @@ SampCheckAccountNameInDomain(IN PSAM_DB_OBJECT DomainObject,
                                        NULL,
                                        NULL);
             if (Status == STATUS_SUCCESS)
-            {
-                SampRegCloseKey(&NamesKey);
                 Status = STATUS_ALIAS_EXISTS;
-            }
             else if (Status == STATUS_OBJECT_NAME_NOT_FOUND)
                 Status = STATUS_SUCCESS;
+
+            SampRegCloseKey(&NamesKey);
         }
 
         SampRegCloseKey(&AccountKey);
@@ -155,12 +154,11 @@ SampCheckAccountNameInDomain(IN PSAM_DB_OBJECT DomainObject,
                                        NULL,
                                        NULL);
             if (Status == STATUS_SUCCESS)
-            {
-                SampRegCloseKey(&NamesKey);
                 Status = STATUS_GROUP_EXISTS;
-            }
             else if (Status == STATUS_OBJECT_NAME_NOT_FOUND)
                 Status = STATUS_SUCCESS;
+
+            SampRegCloseKey(&NamesKey);
         }
 
         SampRegCloseKey(&AccountKey);
@@ -190,12 +188,11 @@ SampCheckAccountNameInDomain(IN PSAM_DB_OBJECT DomainObject,
                                        NULL,
                                        NULL);
             if (Status == STATUS_SUCCESS)
-            {
-                SampRegCloseKey(&NamesKey);
                 Status = STATUS_USER_EXISTS;
-            }
             else if (Status == STATUS_OBJECT_NAME_NOT_FOUND)
                 Status = STATUS_SUCCESS;
+
+            SampRegCloseKey(&NamesKey);
         }
 
         SampRegCloseKey(&AccountKey);
