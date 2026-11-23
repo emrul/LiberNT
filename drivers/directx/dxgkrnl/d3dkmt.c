@@ -6986,6 +6986,36 @@ DxgkRegisterDwmProcess(VOID)
     return STATUS_SUCCESS;
 }
 
+static VOID
+DxgkpUnregisterDwmProcess(
+    _In_ PEPROCESS Process)
+{
+    PDXGKP_DWM_PROCESS Entry;
+    PDXGKP_DWM_PROCESS Removed = NULL;
+    PLIST_ENTRY Link;
+    KIRQL OldIrql;
+
+    ASSERT(Process != NULL);
+    KeAcquireSpinLock(&DxgkpDwmProcessLock, &OldIrql);
+    for (Link = DxgkpDwmProcessList.Flink; Link != &DxgkpDwmProcessList; Link = Link->Flink)
+    {
+        Entry = CONTAINING_RECORD(Link, DXGKP_DWM_PROCESS, Link);
+        if (Entry->Process == Process)
+        {
+            RemoveEntryList(&Entry->Link);
+            Removed = Entry;
+            break;
+        }
+    }
+    KeReleaseSpinLock(&DxgkpDwmProcessLock, OldIrql);
+
+    if (Removed != NULL)
+    {
+        ObDereferenceObject(Removed->Process);
+        ExFreePoolWithTag(Removed, TAG_DXGK_PROCESS);
+    }
+}
+
 static BOOLEAN
 DxgkpIsDwmProcess(
     _In_ PEPROCESS Process)
@@ -10390,6 +10420,7 @@ DxgkD3dkmtProcessCleanup(
     _In_ PEPROCESS Process)
 {
     DxgkpCleanupPagingQueues(Process, NULL, NULL);
+    DxgkpUnregisterDwmProcess(Process);
 }
 
 VOID
