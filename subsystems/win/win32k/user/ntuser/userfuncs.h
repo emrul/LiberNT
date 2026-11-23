@@ -77,6 +77,7 @@ HDC FASTCALL UserGetWindowDC(PWND Wnd);
 /*************** SESSION.C ***************/
 
 extern PRTL_ATOM_TABLE gAtomTable;
+extern PRTL_ATOM_TABLE gGlobalAtomTable;
 NTSTATUS FASTCALL InitSessionImpl(VOID);
 
 /*************** METRIC.C ***************/
