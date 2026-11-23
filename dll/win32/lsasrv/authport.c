@@ -37,6 +37,24 @@ LsapDeregisterLogonProcess(PLSA_API_MSG RequestMsg,
 }
 
 
+static BOOLEAN
+LsapIsLogonContextRegistered(PLSAP_LOGON_CONTEXT LogonContext)
+{
+    PLIST_ENTRY Entry;
+
+    if (LogonContext == NULL)
+        return FALSE;
+
+    for (Entry = LsapLogonContextList.Flink; Entry != &LsapLogonContextList; Entry = Entry->Flink)
+    {
+        if (CONTAINING_RECORD(Entry, LSAP_LOGON_CONTEXT, Entry) == LogonContext)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+
 BOOL
 LsapIsTrustedClient(
     _In_ HANDLE ProcessHandle)
@@ -278,12 +296,13 @@ AuthPortThreadRoutine(PVOID Param)
                 break;
 
             case LPC_PORT_CLOSED:
-                TRACE("Port closed\n");
-                ReplyMsg = NULL;
-                break;
-
             case LPC_CLIENT_DIED:
-                TRACE("Client died\n");
+                TRACE("Port closed or client died\n");
+                /* A client that goes away without deregistering still owns a logon context */
+                LsapLockLogonSessions();
+                if (LsapIsLogonContextRegistered(LogonContext))
+                    LsapDeregisterLogonProcess(&RequestMsg, LogonContext);
+                LsapUnlockLogonSessions();
                 ReplyMsg = NULL;
                 break;
 
