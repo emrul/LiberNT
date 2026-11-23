@@ -58,6 +58,50 @@ struct registered_class
 static CRITICAL_SECTION registered_classes_cs = { NULL, -1, 0, 0, 0, 0 };
 static struct list registered_classes = LIST_INIT(registered_classes);
 
+#ifdef __REACTOS__
+static void scm_prune_dead_classes(void);
+
+struct scm_exit_wait
+{
+    HANDLE process;
+    HANDLE wait;
+};
+
+static VOID CALLBACK scm_registrant_exited(PVOID context, BOOLEAN timed_out)
+{
+    struct scm_exit_wait *exit_wait = context;
+
+    assert(!timed_out);
+    EnterCriticalSection(&registered_classes_cs);
+    assert(exit_wait->wait != NULL);
+    scm_prune_dead_classes();
+    UnregisterWait(exit_wait->wait);
+    LeaveCriticalSection(&registered_classes_cs);
+    CloseHandle(exit_wait->process);
+    free(exit_wait);
+}
+
+static void scm_watch_registrant(HANDLE process)
+{
+    struct scm_exit_wait *exit_wait;
+
+    if (!process || !(exit_wait = calloc(1, sizeof(*exit_wait))))
+        return;
+    if (!DuplicateHandle(GetCurrentProcess(), process, GetCurrentProcess(), &exit_wait->process,
+                         SYNCHRONIZE, FALSE, 0))
+    {
+        free(exit_wait);
+        return;
+    }
+    if (!RegisterWaitForSingleObject(&exit_wait->wait, exit_wait->process, scm_registrant_exited,
+                                     exit_wait, INFINITE, WT_EXECUTEONLYONCE))
+    {
+        CloseHandle(exit_wait->process);
+        free(exit_wait);
+    }
+}
+#endif
+
 HRESULT __cdecl irpcss_server_register(handle_t h, const GUID *clsid, unsigned int flags,
         PMInterfacePointer object, unsigned int *cookie)
 {
@@ -91,6 +135,10 @@ HRESULT __cdecl irpcss_server_register(handle_t h, const GUID *clsid, unsigned i
 #endif
 
     EnterCriticalSection(&registered_classes_cs);
+#ifdef __REACTOS__
+    scm_prune_dead_classes();
+    scm_watch_registrant(entry->process);
+#endif
     list_add_tail(&registered_classes, &entry->entry);
     LeaveCriticalSection(&registered_classes_cs);
 
@@ -106,6 +154,19 @@ static void scm_revoke_class(struct registered_class *_class)
     free(_class->object);
     free(_class);
 }
+
+#ifdef __REACTOS__
+static void scm_prune_dead_classes(void)
+{
+    struct registered_class *cur, *next;
+
+    LIST_FOR_EACH_ENTRY_SAFE(cur, next, &registered_classes, struct registered_class, entry)
+    {
+        if (cur->process && WaitForSingleObject(cur->process, 0) == WAIT_OBJECT_0)
+            scm_revoke_class(cur);
+    }
+}
+#endif
 
 HRESULT __cdecl irpcss_server_revoke(handle_t h, unsigned int cookie)
 {
@@ -131,21 +192,13 @@ HRESULT __cdecl irpcss_get_class_object(handle_t h, const GUID *clsid,
         PMInterfacePointer *object)
 {
     struct registered_class *cur;
-#ifdef __REACTOS__
-    struct registered_class *next;
-#endif
 
     *object = NULL;
 
     EnterCriticalSection(&registered_classes_cs);
 
 #ifdef __REACTOS__
-    LIST_FOR_EACH_ENTRY_SAFE(cur, next, &registered_classes, struct registered_class, entry)
-    {
-        if (!memcmp(clsid, &cur->clsid, sizeof(*clsid)) && cur->process &&
-            WaitForSingleObject(cur->process, 0) == WAIT_OBJECT_0)
-            scm_revoke_class(cur);
-    }
+    scm_prune_dead_classes();
 #endif
 
     LIST_FOR_EACH_ENTRY(cur, &registered_classes, struct registered_class, entry)
