@@ -44,9 +44,11 @@ KeUserModeCallback(
     _Out_ PULONG ResultLength)
 {
     PKTHREAD Thread = KeGetCurrentThread();
+    KI_USER_CALLOUT_FRAME *Frame = NULL;
     PULONG_PTR UserStack;
     ULONG_PTR SavedStack;
-    ULONG_PTR UserState;
+    ULONG_PTR UserState = 0;
+    ULONG ApcDisable;
     NTSTATUS Status;
     ULONG BatchCount = 0;
 
@@ -62,19 +64,32 @@ KeUserModeCallback(
 
     _SEH2_TRY
     {
-        *UserStack = (ULONG_PTR)KiPushCalloutFrame(Thread, SavedStack, RoutineIndex, Argument, ArgumentLength);
+        Frame = KiPushCalloutFrame(Thread, SavedStack, RoutineIndex, Argument, ArgumentLength);
         UserState = KiArchCalloutSaveUserState(Thread);
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        _SEH2_YIELD(return _SEH2_GetExceptionCode());
+    }
+    _SEH2_END;
 
-        Thread->CallbackNestingLevel++;
-        Status = KiCallUserModeWithStack(NULL, Result, ResultLength);
-        Thread->CallbackNestingLevel--;
+    *UserStack = (ULONG_PTR)Frame;
+    ApcDisable = Thread->CombinedApcDisable;
 
-        /* A callback that faulted in user mode leaves its own stack position behind */
-        if (Status == STATUS_CALLBACK_POP_STACK)
-            SavedStack = *UserStack;
-        else
+    Thread->CallbackNestingLevel++;
+    Status = KiCallUserModeWithStack(NULL, Result, ResultLength);
+    Thread->CallbackNestingLevel--;
+
+    ASSERT(Thread->CombinedApcDisable == ApcDisable);
+
+    /* A callback that faulted in user mode leaves its own stack position behind */
+    if (Status == STATUS_CALLBACK_POP_STACK)
+        SavedStack = *UserStack;
+
+    _SEH2_TRY
+    {
+        if (Status != STATUS_CALLBACK_POP_STACK)
             KiArchCalloutRestoreUserState(Thread, UserState);
-
         BatchCount = ((PTEB)Thread->Teb)->GdiBatchCount;
     }
     _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
