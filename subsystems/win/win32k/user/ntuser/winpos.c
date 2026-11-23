@@ -3866,6 +3866,7 @@ co_WinPosSearchChildren(
 {
     HWND *List, *phWnd;
     PWND pwndChild = NULL;
+    USER_REFERENCE_ENTRY Ref;
 
     /* DWM's visible fullscreen GPU output is a scanout carrier rather than
      * an input surface.  Let hit testing continue to the real application
@@ -3910,7 +3911,7 @@ co_WinPosSearchChildren(
     if (!(ScopeWin->style & WS_MINIMIZE) &&
          RECTL_bPointInRect(&ScopeWin->rcClient, Point->x, Point->y) )
     {
-        UserReferenceObject(ScopeWin);
+        UserRefObjectCo(ScopeWin, &Ref);
 
         List = IntWinListChildren(ScopeWin);
         if (List)
@@ -3928,13 +3929,13 @@ co_WinPosSearchChildren(
                 {
                     /* We found a window. Don't send any more WM_NCHITTEST messages */
                     ExFreePoolWithTag(List, USERTAG_WINDOWLIST);
-                    UserDereferenceObject(ScopeWin);
+                    UserDerefObjectCo(ScopeWin);
                     return pwndChild;
                 }
             }
             ExFreePoolWithTag(List, USERTAG_WINDOWLIST);
         }
-        UserDereferenceObject(ScopeWin);
+        UserDerefObjectCo(ScopeWin);
     }
 
     if (ScopeWin->head.pti == PsGetCurrentThreadWin32Thread())
