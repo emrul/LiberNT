@@ -42,6 +42,9 @@ struct rot_entry
     DWORD              cookie; /* cookie identifying this object */
     FILETIME           last_modified;
     LONG               refs;
+#ifdef __REACTOS__
+    DWORD              session; /* terminal session of the client that registered it */
+#endif
 };
 
 static struct list RunningObjectTable = LIST_INIT(RunningObjectTable);
@@ -68,6 +71,25 @@ static inline void rot_entry_release(struct rot_entry *rot_entry)
     }
 }
 
+#ifdef __REACTOS__
+static DWORD irot_client_session(IrotHandle h)
+{
+    DWORD session = ~0u, length = 0;
+    HANDLE token;
+
+    if (RpcImpersonateClient(h) != RPC_S_OK)
+        return ~0u;
+    if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token))
+    {
+        if (!GetTokenInformation(token, TokenSessionId, &session, sizeof(session), &length))
+            session = ~0u;
+        CloseHandle(token);
+    }
+    RpcRevertToSelf();
+    return session;
+}
+
+#endif
 HRESULT __cdecl IrotRegister(
     IrotHandle h,
     const MonikerComparisonData *data,
@@ -81,6 +103,9 @@ HRESULT __cdecl IrotRegister(
     struct rot_entry *rot_entry;
     struct rot_entry *existing_rot_entry;
     HRESULT hr;
+#ifdef __REACTOS__
+    DWORD session;
+#endif
 
     if (grfFlags & ~(ROTFLAGS_REGISTRATIONKEEPSALIVE|ROTFLAGS_ALLOWANYCLIENT))
     {
@@ -88,6 +113,12 @@ HRESULT __cdecl IrotRegister(
         return E_INVALIDARG;
     }
 
+#ifdef __REACTOS__
+    session = irot_client_session(h);
+    if (session == ~0u)
+        return E_ACCESSDENIED;
+
+#endif
     if (!(rot_entry = calloc(1, sizeof(*rot_entry))))
         return E_OUTOFMEMORY;
 
@@ -119,6 +150,9 @@ HRESULT __cdecl IrotRegister(
     }
     rot_entry->moniker_data->ulCntData = data->ulCntData;
     memcpy(&rot_entry->moniker_data->abData, data->abData, data->ulCntData);
+#ifdef __REACTOS__
+    rot_entry->session = session;
+#endif
 
     EnterCriticalSection(&csRunningObjectTable);
 
@@ -126,6 +160,9 @@ HRESULT __cdecl IrotRegister(
 
     LIST_FOR_EACH_ENTRY(existing_rot_entry, &RunningObjectTable, struct rot_entry, entry)
     {
+#ifdef __REACTOS__
+        if (existing_rot_entry->session != rot_entry->session) continue;
+#endif
         if ((existing_rot_entry->moniker_data->ulCntData == data->ulCntData) &&
             !memcmp(&data->abData, &existing_rot_entry->moniker_data->abData, data->ulCntData))
         {
@@ -154,13 +191,25 @@ HRESULT __cdecl IrotRevoke(
     PInterfaceData *mk)
 {
     struct rot_entry *rot_entry;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("%ld\n", cookie);
 
+#ifdef __REACTOS__
+    if (session == ~0u)
+        return E_INVALIDARG;
+
+#endif
     EnterCriticalSection(&csRunningObjectTable);
     LIST_FOR_EACH_ENTRY(rot_entry, &RunningObjectTable, struct rot_entry, entry)
     {
+#ifdef __REACTOS__
+        if (rot_entry->cookie == cookie && rot_entry->session == session)
+#else
         if (rot_entry->cookie == cookie)
+#endif
         {
             HRESULT hr = S_OK;
 
@@ -199,6 +248,9 @@ HRESULT __cdecl IrotIsRunning(
 {
     const struct rot_entry *rot_entry;
     HRESULT hr = S_FALSE;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("\n");
 
@@ -206,6 +258,9 @@ HRESULT __cdecl IrotIsRunning(
 
     LIST_FOR_EACH_ENTRY(rot_entry, &RunningObjectTable, const struct rot_entry, entry)
     {
+#ifdef __REACTOS__
+        if (rot_entry->session != session) continue;
+#endif
         if ((rot_entry->moniker_data->ulCntData == data->ulCntData) &&
             !memcmp(&data->abData, &rot_entry->moniker_data->abData, data->ulCntData))
         {
@@ -225,6 +280,9 @@ HRESULT __cdecl IrotGetObject(
     IrotCookie *cookie)
 {
     const struct rot_entry *rot_entry;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("%p\n", moniker_data);
 
@@ -235,6 +293,9 @@ HRESULT __cdecl IrotGetObject(
     LIST_FOR_EACH_ENTRY(rot_entry, &RunningObjectTable, const struct rot_entry, entry)
     {
         HRESULT hr = S_OK;
+#ifdef __REACTOS__
+        if (rot_entry->session != session) continue;
+#endif
         if ((rot_entry->moniker_data->ulCntData == moniker_data->ulCntData) &&
             !memcmp(&moniker_data->abData, &rot_entry->moniker_data->abData, moniker_data->ulCntData))
         {
@@ -266,13 +327,20 @@ HRESULT __cdecl IrotNoteChangeTime(
     const FILETIME *last_modified_time)
 {
     struct rot_entry *rot_entry;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("%ld %p\n", cookie, last_modified_time);
 
     EnterCriticalSection(&csRunningObjectTable);
     LIST_FOR_EACH_ENTRY(rot_entry, &RunningObjectTable, struct rot_entry, entry)
     {
+#ifdef __REACTOS__
+        if (rot_entry->cookie == cookie && rot_entry->session == session)
+#else
         if (rot_entry->cookie == cookie)
+#endif
         {
             rot_entry->last_modified = *last_modified_time;
             LeaveCriticalSection(&csRunningObjectTable);
@@ -291,6 +359,9 @@ HRESULT __cdecl IrotGetTimeOfLastChange(
 {
     const struct rot_entry *rot_entry;
     HRESULT hr = MK_E_UNAVAILABLE;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("%p\n", moniker_data);
 
@@ -299,6 +370,9 @@ HRESULT __cdecl IrotGetTimeOfLastChange(
     EnterCriticalSection(&csRunningObjectTable);
     LIST_FOR_EACH_ENTRY(rot_entry, &RunningObjectTable, const struct rot_entry, entry)
     {
+#ifdef __REACTOS__
+        if (rot_entry->session != session) continue;
+#endif
         if ((rot_entry->moniker_data->ulCntData == moniker_data->ulCntData) &&
             !memcmp(&moniker_data->abData, &rot_entry->moniker_data->abData, moniker_data->ulCntData))
         {
@@ -320,13 +394,20 @@ HRESULT __cdecl IrotEnumRunning(
     HRESULT hr = S_OK;
     ULONG moniker_count = 0;
     ULONG i = 0;
+#ifdef __REACTOS__
+    DWORD session = irot_client_session(h);
+#endif
 
     WINE_TRACE("\n");
 
     EnterCriticalSection(&csRunningObjectTable);
 
     LIST_FOR_EACH_ENTRY( rot_entry, &RunningObjectTable, const struct rot_entry, entry )
+#ifdef __REACTOS__
+        if (rot_entry->session == session) moniker_count++;
+#else
         moniker_count++;
+#endif
 
     *list = MIDL_user_allocate(FIELD_OFFSET(InterfaceList, interfaces[moniker_count]));
     if (*list)
@@ -334,6 +415,9 @@ HRESULT __cdecl IrotEnumRunning(
         (*list)->size = moniker_count;
         LIST_FOR_EACH_ENTRY( rot_entry, &RunningObjectTable, const struct rot_entry, entry )
         {
+#ifdef __REACTOS__
+            if (rot_entry->session != session) continue;
+#endif
             (*list)->interfaces[i] = MIDL_user_allocate(FIELD_OFFSET(InterfaceData, abData[rot_entry->moniker->ulCntData]));
             if (!(*list)->interfaces[i])
             {
