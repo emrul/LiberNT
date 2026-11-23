@@ -28,6 +28,7 @@ list(APPEND SOURCE
     LockServiceDatabase.c
     LookupAccountName.c
     LookupAccountSid.c
+    NamedPipeDefaultSecurity.c
     MachineGuid.c
     NotifyBootConfigStatus.c
     WindowsVersionValues.c

@@ -653,6 +653,63 @@ NpCreateExistingNamedPipe(IN PNP_FCB Fcb,
     return IoStatus;
 }
 
+/* The default for a pipe created without one, as documented for CreateNamedPipe */
+static
+NTSTATUS
+NpBuildDefaultPipeSecurity(IN PSECURITY_SUBJECT_CONTEXT SecurityContext,
+                           OUT PSECURITY_DESCRIPTOR *SecurityDescriptor)
+{
+    PSID Sids[5];
+    static const ACCESS_MASK Masks[5] = { FILE_ALL_ACCESS, FILE_ALL_ACCESS, FILE_ALL_ACCESS,
+                                          FILE_GENERIC_READ, FILE_GENERIC_READ };
+    PTOKEN_OWNER Owner = NULL;
+    PSECURITY_DESCRIPTOR Descriptor;
+    ULONG AclSize, i;
+    NTSTATUS Status;
+    PACL Acl;
+    PAGED_CODE();
+
+    *SecurityDescriptor = NULL;
+    Status = SeQueryInformationToken(SeQuerySubjectContextToken(SecurityContext), TokenOwner, (PVOID *)&Owner);
+    if (!NT_SUCCESS(Status)) return Status;
+    ASSERT(Owner != NULL && RtlValidSid(Owner->Owner));
+
+    Sids[0] = SeExports->SeLocalSystemSid;
+    Sids[1] = SeExports->SeAliasAdminsSid;
+    Sids[2] = Owner->Owner;
+    Sids[3] = SeExports->SeWorldSid;
+    Sids[4] = SeExports->SeAnonymousLogonSid;
+
+    AclSize = sizeof(ACL);
+    for (i = 0; i < RTL_NUMBER_OF(Sids); i++)
+        AclSize += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(Sids[i]);
+
+    Descriptor = ExAllocatePoolWithTag(PagedPool, sizeof(SECURITY_DESCRIPTOR) + AclSize, NPFS_SECURITY_TAG);
+    if (!Descriptor)
+    {
+        ExFreePool(Owner);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Acl = (PACL)((PUCHAR)Descriptor + sizeof(SECURITY_DESCRIPTOR));
+    Status = RtlCreateSecurityDescriptor(Descriptor, SECURITY_DESCRIPTOR_REVISION);
+    if (NT_SUCCESS(Status)) Status = RtlCreateAcl(Acl, AclSize, ACL_REVISION);
+    for (i = 0; NT_SUCCESS(Status) && i < RTL_NUMBER_OF(Sids); i++)
+        Status = RtlAddAccessAllowedAce(Acl, ACL_REVISION, Masks[i], Sids[i]);
+    if (NT_SUCCESS(Status)) Status = RtlSetDaclSecurityDescriptor(Descriptor, TRUE, Acl, FALSE);
+
+    ExFreePool(Owner);
+    if (!NT_SUCCESS(Status))
+    {
+        ExFreePoolWithTag(Descriptor, NPFS_SECURITY_TAG);
+        return Status;
+    }
+
+    ASSERT(Acl->AceCount == RTL_NUMBER_OF(Sids));
+    *SecurityDescriptor = Descriptor;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS
 NTAPI
 NpCreateNewNamedPipe(IN PNP_DCB Dcb,
@@ -670,7 +727,7 @@ NpCreateNewNamedPipe(IN PNP_DCB Dcb,
     NTSTATUS Status;
     USHORT NamedPipeConfiguration;
     PSECURITY_SUBJECT_CONTEXT SecurityContext;
-    PSECURITY_DESCRIPTOR SecurityDescriptor, CachedSecurityDescriptor;
+    PSECURITY_DESCRIPTOR SecurityDescriptor, CachedSecurityDescriptor, DefaultSecurity = NULL;
     PNP_CCB Ccb;
     PNP_FCB Fcb;
     PAGED_CODE();
@@ -739,16 +796,28 @@ NpCreateNewNamedPipe(IN PNP_DCB Dcb,
     }
 
     SecurityContext = &AccessState->SubjectSecurityContext;
+    if (AccessState->SecurityDescriptor == NULL)
+    {
+        Status = NpBuildDefaultPipeSecurity(SecurityContext, &DefaultSecurity);
+        if (!NT_SUCCESS(Status))
+        {
+            NpDeleteCcb(Ccb, List);
+            NpDeleteFcb(Fcb, List);
+            goto Quickie;
+        }
+    }
+
     SeLockSubjectContext(SecurityContext);
 
     Status = SeAssignSecurity(NULL,
-                              AccessState->SecurityDescriptor,
+                              DefaultSecurity ? DefaultSecurity : AccessState->SecurityDescriptor,
                               &SecurityDescriptor,
                               FALSE,
                               SecurityContext,
                               IoGetFileObjectGenericMapping(),
                               PagedPool);
     SeUnlockSubjectContext(SecurityContext);
+    if (DefaultSecurity) ExFreePoolWithTag(DefaultSecurity, NPFS_SECURITY_TAG);
     if (!NT_SUCCESS(Status))
     {
         NpDeleteCcb(Ccb, List);

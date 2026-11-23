@@ -29,6 +29,7 @@ extern void func_LockServiceDatabase(void);
 extern void func_TokenDefaultDacl(void);
 extern void func_LookupAccountName(void);
 extern void func_LookupAccountSid(void);
+extern void func_NamedPipeDefaultSecurity(void);
 extern void func_MachineGuid(void);
 extern void func_NotifyBootConfigStatus(void);
 extern void func_WindowsVersionValues(void);
@@ -100,6 +101,7 @@ const struct test winetest_testlist[] =
     { "LockServiceDatabase" , func_LockServiceDatabase },
     { "LookupAccountName", func_LookupAccountName },
     { "LookupAccountSid", func_LookupAccountSid },
+    { "NamedPipeDefaultSecurity", func_NamedPipeDefaultSecurity },
     { "MachineGuid", func_MachineGuid },
     { "NotifyBootConfigStatus", func_NotifyBootConfigStatus },
     { "WindowsVersionValues", func_WindowsVersionValues },

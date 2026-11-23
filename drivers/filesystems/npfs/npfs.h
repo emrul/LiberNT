@@ -59,6 +59,7 @@
 #define NPFS_CLIENT_INFO_TAG    'iFpN'
 #define NPFS_NAME_BLOCK_TAG     'nFpN'
 #define NPFS_QUERY_TEMPLATE_TAG 'qFpN'
+#define NPFS_SECURITY_TAG       'SFpN'
 #define NPFS_DATA_ENTRY_TAG     'rFpN'
 #define NPFS_CLIENT_SEC_CTX_TAG 'sFpN'
 #define NPFS_WAIT_BLOCK_TAG     'tFpN'
