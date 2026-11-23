@@ -188,7 +188,7 @@ SepDeleteLogonSession(
 
     if (Notify) SepNotifyLogonSessionTerminated(&Ended);
 
-    if (DeviceMap != NULL) ObfDereferenceDeviceMap(DeviceMap);
+    if (DeviceMap != NULL) ObpReleaseLogonDeviceMap(DeviceMap);
 
     ExFreePoolWithTag(Session, TAG_SE);
 
@@ -685,7 +685,7 @@ SepRmDereferenceLogonSession(
     KeReleaseGuardedMutex(&SepLogonSessionLock);
 
     if (Notify) SepNotifyLogonSessionTerminated(&Ended);
-    if (DeviceMap != NULL) ObfDereferenceDeviceMap(DeviceMap);
+    if (DeviceMap != NULL) ObpReleaseLogonDeviceMap(DeviceMap);
 
     ExFreePoolWithTag(Session, TAG_SE);
 
@@ -849,11 +849,49 @@ SeGetLogonIdDeviceMap(
     }
     else if (Session->pDeviceMap == NULL)
     {
-        /* TODO: a session is not given a map of its own on demand */
         Status = STATUS_OBJECT_NAME_NOT_FOUND;
     }
     else
     {
+        *DeviceMap = Session->pDeviceMap;
+    }
+
+    KeReleaseGuardedMutex(&SepLogonSessionLock);
+
+    return Status;
+}
+
+NTSTATUS
+NTAPI
+SepSetLogonIdDeviceMap(
+    _In_ PLUID LogonId,
+    _In_ PDEVICE_MAP Candidate,
+    _Out_ PDEVICE_MAP *DeviceMap,
+    _Out_ PBOOLEAN Installed)
+{
+    PSEP_LOGON_SESSION_REFERENCES Session;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+    ASSERT(Candidate != NULL);
+
+    *DeviceMap = NULL;
+    *Installed = FALSE;
+
+    KeAcquireGuardedMutex(&SepLogonSessionLock);
+
+    Session = SepFindLogonSession(LogonId);
+    if (Session == NULL)
+    {
+        Status = STATUS_NO_SUCH_LOGON_SESSION;
+    }
+    else
+    {
+        if (Session->pDeviceMap == NULL)
+        {
+            Session->pDeviceMap = Candidate;
+            *Installed = TRUE;
+        }
         *DeviceMap = Session->pDeviceMap;
     }
 

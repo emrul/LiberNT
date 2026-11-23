@@ -182,6 +182,188 @@ ObpAttachMapToDirectory(
 
 static
 NTSTATUS
+ObpCreateLogonDeviceMap(
+    _In_ PACCESS_TOKEN Token,
+    _In_ PLUID LogonId,
+    _Outptr_ PDEVICE_MAP *Map)
+{
+    OBJECT_ATTRIBUTES Attributes;
+    SECURITY_DESCRIPTOR Descriptor;
+    UNICODE_STRING Name, Target;
+    WCHAR NameBuffer[24];
+    PTOKEN_OWNER Owner = NULL;
+    HANDLE Parent = NULL, Directory = NULL, Link = NULL;
+    PACL Acl = NULL;
+    ULONG AclSize;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    *Map = NULL;
+
+    Status = SeQueryInformationToken(Token, TokenOwner, (PVOID *)&Owner);
+    if (!NT_SUCCESS(Status)) return Status;
+    ASSERT(Owner != NULL && RtlValidSid(Owner->Owner));
+
+    AclSize = sizeof(ACL) +
+              FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(SeExports->SeLocalSystemSid) +
+              FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(SeExports->SeAliasAdminsSid) +
+              FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(Owner->Owner) +
+              FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) + RtlLengthSid(SeExports->SeCreatorOwnerSid);
+    Acl = ExAllocatePoolWithTag(PagedPool, AclSize, OBP_DEVICE_MAP_TAG);
+    if (Acl == NULL)
+    {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Quit;
+    }
+
+    Status = RtlCreateAcl(Acl, AclSize, ACL_REVISION);
+    if (NT_SUCCESS(Status))
+        Status = RtlAddAccessAllowedAceEx(Acl, ACL_REVISION, OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                                          DIRECTORY_ALL_ACCESS, SeExports->SeLocalSystemSid);
+    if (NT_SUCCESS(Status))
+        Status = RtlAddAccessAllowedAceEx(Acl, ACL_REVISION, OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                                          DIRECTORY_ALL_ACCESS, SeExports->SeAliasAdminsSid);
+    if (NT_SUCCESS(Status))
+        Status = RtlAddAccessAllowedAceEx(Acl, ACL_REVISION, 0, DIRECTORY_ALL_ACCESS, Owner->Owner);
+    if (NT_SUCCESS(Status))
+        Status = RtlAddAccessAllowedAceEx(Acl, ACL_REVISION,
+                                          OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE | INHERIT_ONLY_ACE,
+                                          GENERIC_ALL, SeExports->SeCreatorOwnerSid);
+    if (NT_SUCCESS(Status))
+        Status = RtlCreateSecurityDescriptor(&Descriptor, SECURITY_DESCRIPTOR_REVISION);
+    if (NT_SUCCESS(Status))
+        Status = RtlSetOwnerSecurityDescriptor(&Descriptor, Owner->Owner, FALSE);
+    if (NT_SUCCESS(Status))
+        Status = RtlSetDaclSecurityDescriptor(&Descriptor, TRUE, Acl, FALSE);
+    if (!NT_SUCCESS(Status)) goto Quit;
+
+    RtlInitUnicodeString(&Name, L"\\Sessions\\0\\DosDevices");
+    InitializeObjectAttributes(&Attributes,
+                               &Name,
+                               OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_PERMANENT | OBJ_KERNEL_HANDLE,
+                               NULL,
+                               NULL);
+    Status = ZwCreateDirectoryObject(&Parent, DIRECTORY_ALL_ACCESS, &Attributes);
+    if (!NT_SUCCESS(Status)) goto Quit;
+
+    Status = RtlStringCbPrintfW(NameBuffer, sizeof(NameBuffer), L"%08lx-%08lx",
+                                (ULONG)LogonId->HighPart, LogonId->LowPart);
+    if (!NT_SUCCESS(Status)) goto Quit;
+    RtlInitUnicodeString(&Name, NameBuffer);
+    InitializeObjectAttributes(&Attributes,
+                               &Name,
+                               OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_KERNEL_HANDLE,
+                               Parent,
+                               &Descriptor);
+    Status = ZwCreateDirectoryObject(&Directory, DIRECTORY_ALL_ACCESS, &Attributes);
+    if (!NT_SUCCESS(Status)) goto Quit;
+
+    RtlInitUnicodeString(&Name, L"Global");
+    RtlInitUnicodeString(&Target, L"\\GLOBAL??");
+    InitializeObjectAttributes(&Attributes,
+                               &Name,
+                               OBJ_CASE_INSENSITIVE | OBJ_OPENIF | OBJ_PERMANENT | OBJ_KERNEL_HANDLE,
+                               Directory,
+                               NULL);
+    Status = ZwCreateSymbolicLinkObject(&Link, SYMBOLIC_LINK_ALL_ACCESS, &Attributes, &Target);
+    if (!NT_SUCCESS(Status)) goto Quit;
+
+    Status = ObpAttachMapToDirectory(Directory, KernelMode, FALSE, TRUE, Map);
+    ASSERT(!NT_SUCCESS(Status) || (*Map != NULL && (*Map)->GlobalDosDevicesDirectory != NULL));
+
+Quit:
+    if (Link != NULL) ZwClose(Link);
+    if (Directory != NULL) ZwClose(Directory);
+    if (Parent != NULL) ZwClose(Parent);
+    if (Acl != NULL) ExFreePoolWithTag(Acl, OBP_DEVICE_MAP_TAG);
+    ExFreePool(Owner);
+    return Status;
+}
+
+static
+PDEVICE_MAP
+ObpLogonDeviceMap(
+    _In_ PACCESS_TOKEN Token,
+    _In_ PLUID LogonId)
+{
+    PDEVICE_MAP Chosen = NULL, Built = NULL;
+    BOOLEAN Installed = FALSE;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    if (NT_SUCCESS(SeGetLogonIdDeviceMap(LogonId, &Chosen))) return Chosen;
+
+    Status = ObpCreateLogonDeviceMap(Token, LogonId, &Built);
+    if (NT_SUCCESS(Status))
+        Status = SepSetLogonIdDeviceMap(LogonId, Built, &Chosen, &Installed);
+
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("No device map for logon %lx-%lx: 0x%lx\n", LogonId->HighPart, LogonId->LowPart, Status);
+        if (Built != NULL) ObfDereferenceDeviceMap(Built);
+        return ObSystemDeviceMap;
+    }
+
+    ASSERT(Chosen != NULL);
+    if (!Installed) ObfDereferenceDeviceMap(Built);
+    return Chosen;
+}
+
+VOID
+NTAPI
+ObpReleaseLogonDeviceMap(
+    _In_ PDEVICE_MAP DeviceMap)
+{
+    struct
+    {
+        OBJECT_DIRECTORY_INFORMATION Info;
+        WCHAR Names[256];
+    } Entry;
+    OBJECT_ATTRIBUTES Attributes;
+    UNICODE_STRING LinkType;
+    HANDLE Directory, Link;
+    ULONG Context = 0, Length;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+    ASSERT(DeviceMap != ObSystemDeviceMap);
+
+    RtlInitUnicodeString(&LinkType, L"SymbolicLink");
+    Status = ObOpenObjectByPointer(DeviceMap->DosDevicesDirectory,
+                                   OBJ_KERNEL_HANDLE,
+                                   NULL,
+                                   DIRECTORY_QUERY | DIRECTORY_TRAVERSE,
+                                   ObpDirectoryObjectType,
+                                   KernelMode,
+                                   &Directory);
+    if (NT_SUCCESS(Status))
+    {
+        while (NT_SUCCESS(ZwQueryDirectoryObject(Directory, &Entry, sizeof(Entry), TRUE,
+                                                 Context == 0, &Context, &Length)))
+        {
+            if (!RtlEqualUnicodeString(&Entry.Info.TypeName, &LinkType, TRUE)) continue;
+
+            InitializeObjectAttributes(&Attributes,
+                                       &Entry.Info.Name,
+                                       OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                                       Directory,
+                                       NULL);
+            if (NT_SUCCESS(ZwOpenSymbolicLinkObject(&Link, DELETE, &Attributes)))
+            {
+                ZwMakeTemporaryObject(Link);
+                ZwClose(Link);
+            }
+        }
+        ZwClose(Directory);
+    }
+
+    ObfDereferenceDeviceMap(DeviceMap);
+}
+
+static
+NTSTATUS
 ObpSetCurrentProcessDeviceMap(VOID)
 {
     PEPROCESS Self = PsGetCurrentProcess();
@@ -201,8 +383,8 @@ ObpSetCurrentProcessDeviceMap(VOID)
     {
         if (RtlEqualLuid(&LogonId, &SystemLuid))
             Chosen = ObSystemDeviceMap;
-        else if (!NT_SUCCESS(SeGetLogonIdDeviceMap(&LogonId, &Chosen)))
-            Chosen = NULL;
+        else
+            Chosen = ObpLogonDeviceMap(Token, &LogonId);
 
         if (Chosen == NULL)
         {
@@ -249,8 +431,8 @@ ObpImpersonationDeviceMap(VOID)
     {
         if (RtlEqualLuid(&LogonId, &SystemLuid))
             Chosen = ObSystemDeviceMap;
-        else if (!NT_SUCCESS(SeGetLogonIdDeviceMap(&LogonId, &Chosen)))
-            Chosen = NULL;
+        else
+            Chosen = ObpLogonDeviceMap(Token, &LogonId);
 
         if (Chosen != NULL) ObpReferenceDeviceMapBy(Chosen, 1);
     }
@@ -374,6 +556,8 @@ ObInheritDeviceMap(
     _In_ PEPROCESS Process)
 {
     PDEVICE_MAP Inherited, Previous;
+
+    if (ObpLUIDDeviceMapsEnabled != 0) return;
 
     if (Parent != NULL)
     {

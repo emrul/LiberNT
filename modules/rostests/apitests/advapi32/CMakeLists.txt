@@ -13,6 +13,7 @@ list(APPEND SOURCE
     CreateService.c
     CryptCreateHash.c
     DuplicateTokenEx.c
+    DosDeviceLogonSession.c
     EnableTraceEx.c
     EnumerateTraceGuidsEx.c
     eventlog.c

@@ -11,6 +11,7 @@ extern void func_CreateProcessWithToken(void);
 extern void func_CreateProcessWithTokenChild(void);
 extern void func_CreateService(void);
 extern void func_CryptCreateHash(void);
+extern void func_DosDeviceLogonSession(void);
 extern void func_DuplicateTokenEx(void);
 extern void func_EnableTraceEx(void);
 extern void func_EnumerateTraceGuidsEx(void);
@@ -83,6 +84,7 @@ const struct test winetest_testlist[] =
     { "CreateProcessWithTokenChild", func_CreateProcessWithTokenChild },
     { "CreateService", func_CreateService },
     { "CryptCreateHash", func_CryptCreateHash },
+    { "DosDeviceLogonSession", func_DosDeviceLogonSession },
     { "DuplicateTokenEx", func_DuplicateTokenEx },
     { "EnableTraceEx", func_EnableTraceEx },
     { "EnumerateTraceGuidsEx", func_EnumerateTraceGuidsEx },
