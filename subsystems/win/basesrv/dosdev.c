@@ -1004,8 +1004,9 @@ CSR_API(BaseSrvDefineDosDevice)
         /* Link DACL to the SD */
         RtlSetDaclSecurityDescriptor(&SecurityDescriptor, TRUE, &Dacl.Dacl, TRUE);
 
-        /* And set it in the OA used for creation */
-        ObjectAttributes.SecurityDescriptor = &SecurityDescriptor;
+        /* A link in a logon session's own map takes the security its directory hands down */
+        if (!BaseStaticServerData->LUIDDeviceMapsEnabled || IsGlobal)
+            ObjectAttributes.SecurityDescriptor = &SecurityDescriptor;
 
         /*
          * If LUID and not global, we need to impersonate the caller

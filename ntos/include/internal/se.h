@@ -626,6 +626,14 @@ SeGetLogonIdDeviceMap(
     _In_ PLUID LogonId,
     _Out_ PDEVICE_MAP *DeviceMap);
 
+NTSTATUS
+NTAPI
+SepSetLogonIdDeviceMap(
+    _In_ PLUID LogonId,
+    _In_ PDEVICE_MAP Candidate,
+    _Out_ PDEVICE_MAP *DeviceMap,
+    _Out_ PBOOLEAN Installed);
+
 BOOLEAN
 NTAPI
 SeRmInitPhase1(VOID);

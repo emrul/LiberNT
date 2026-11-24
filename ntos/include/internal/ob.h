@@ -224,6 +224,11 @@ ULONG
 NTAPI
 ObIsLUIDDeviceMapsEnabled(VOID);
 
+VOID
+NTAPI
+ObpReleaseLogonDeviceMap(
+    _In_ PDEVICE_MAP DeviceMap);
+
 NTSTATUS
 NTAPI
 ObQueryDeviceMapInformation(
